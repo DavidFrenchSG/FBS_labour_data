@@ -11,6 +11,7 @@ sampyear <- 2021
 
 #Get Labour data
 labour_data_filename <- paste0("/so_y", datayear, "_alb",".sas7bdat")
+fa_filename <- paste0("/so_y", datayear, "_fa",".sas7bdat")
 
 labour_data <-tryCatch(
   {
@@ -22,9 +23,23 @@ labour_data <-tryCatch(
   }
 )
 
+fa_data <-tryCatch(
+  {
+    fa_data <-read_sas(fa_filename)
+  },
+  error = function(e)
+  {
+    return(read_sas(paste0(FBS_directory_path,fa_filename)))
+  }
+)
+
 names(labour_data) <- tolower(names(labour_data))
 for (x in colnames(labour_data)){
   attr(labour_data[[deparse(as.name(x))]],"format.sas")=NULL
+}
+names(fa_data) <- tolower(names(fa_data))
+for (x in colnames(fa_data)){
+  attr(fa_data[[deparse(as.name(x))]],"format.sas")=NULL
 }
 
 labour_data_process <- labour_data %>% 
@@ -46,5 +61,12 @@ labour_data_summary <- labour_data_process %>%
     reg_labour_hours=sum(reg_labour_hours,na.rm=T),
     cas_labour_number=sum(cas_labour_number,na.rm=T),
     cas_labour_hours=sum(cas_labour_hours,na.rm=T)
-    
   )
+
+fa_data_process <- fa_data %>% 
+  select(fa_id, fa_ilab, fa_labc) %>% 
+  filter(fa_id %% 10000==sampyear)
+
+
+merged_data <- fa_data_process %>% 
+  left_join(labour_data_summary, by="fa_id")
