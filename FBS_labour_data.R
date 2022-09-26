@@ -1,6 +1,6 @@
 library(tidyverse)
 library(haven)
-# library(data.table)
+library(data.table)
 # library(ade4)
 # library(writexl)
 
@@ -8,6 +8,10 @@ FBS_directory_path <- '//s0177a/sasdata1/ags/fas'
 
 datayear <- 2021
 sampyear <- 2021
+
+type_numbers <- c(1:9)
+type_words <- c("Cereals","General Cropping","Dairy","LFA Sheep","LFA Cattle","LFA Cattle and Sheep","Lowland Livestock","Mixed","All farm types")
+type_tab <- data.frame(type_numbers,type_words)
 
 
 import_sas <-function(directory_path, datayear, suffix) {
@@ -58,7 +62,7 @@ labour_data_summary <- labour_data_process %>%
 
 fa_data_process <- fa_data %>% 
   filter(fa_id %% 10000 == sampyear) %>% 
-  select(fa_id, i_lab=fa_ilab, fa_labc) 
+  select(fa_id, i_lab=fa_ilab, fa_labc, type) 
 
 avf_data_process <- avf_data %>% 
   filter(fa_id %% 10000==sampyear) %>% 
@@ -101,7 +105,7 @@ dsec2_data_process <- dsec2_data %>%
 
 ant_data_process <- ant_data %>% 
   filter(fa_id %% 10000==sampyear) %>% 
-  filter(nt_code %in% c("XNIP","XNIU")) %>% 
+  filter(nt_code %in% c("XNIP", "XNIU")) %>% 
   group_by(fa_id,nt_code) %>% 
   summarise(cost=sum(antcost)) %>% 
   pivot_wider(id_cols=fa_id, names_from = nt_code, values_from=cost) %>% 
@@ -114,6 +118,10 @@ merged_data <- list(fa_data_process, labour_data_summary, dsec1_data_process, ds
 merged_data[is.na(merged_data)]=0 
 merged_data <- merged_data %>% 
   mutate(f_rlabour=i_lab-(i_pdlab+i_uflab+ ds1_conlab + ecclab + ds_paidl + i_clab)) %>% 
-  select(fa_id, reg_labour_number, reg_labour_hours, reg_labour_wages = f_rlabour, cas_labour_number, cas_labour_hours, cas_labour_wages = i_clab) %>% 
+  select(fa_id, type, reg_labour_number, reg_labour_hours, reg_labour_wages = f_rlabour, cas_labour_number, cas_labour_hours, cas_labour_wages = i_clab) %>% 
   mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours,cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
 
+setkey(setDT(merged_data),type)
+merged_data[setDT(type_tab),farmtype:=i.type_words]
+merged_data <- merged_data %>% 
+  select(-type)
