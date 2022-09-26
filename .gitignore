@@ -37,3 +37,7 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Input SAS data files and output spreadsheets
+*.sas7bdat
+*.xlsx
