@@ -137,20 +137,19 @@ summary_by_farmtype <- merged_data %>%
   group_by(type) %>% 
   summarise_all(mean) %>% 
   bind_rows(mutate(summarise_all(., ~if(is.numeric(.)) mean(.)), type=9)) %>% 
-  mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours,cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
+  mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours, cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
   #Add row for all farms
 
-## Add "wordy" farmtypes.
+## Add "wordy" farmtypes; rearrange columns
 setkey(setDT(merged_data),type)
 merged_data[setDT(type_tab),farmtype:=i.type_words]
 merged_data <- merged_data %>% 
-  select(-type)
-
+  select(fa_id, farmtype, everything(), -type)
 setkey(setDT(summary_by_farmtype),type)
-summary_by_farmtype[setDT(type_tab),farmtype:=i.type_words]
+summary_by_farmtype[setDT(type_tab), farmtype := i.type_words]
 summary_by_farmtype <- summary_by_farmtype %>% 
-  select(-type)
+  select(farmtype, everything(), -type)
 
 ## Output a csv file with the data.
 output_tables <- list("Farm list" = merged_data, "Summary by farmtype" = summary_by_farmtype)
-write_xlsx(output_tables,paste0("FBS_labour_data_",datayear,"_",sampyear-2000,".xlsx"))
+write_xlsx(output_tables,paste0("FBS_labour_data_", datayear, "_", sampyear-2000, ".xlsx"))
