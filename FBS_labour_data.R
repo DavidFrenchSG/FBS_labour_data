@@ -10,6 +10,11 @@ library(writexl)
 sampyear <- 2021
 datayear <- 2021
 
+## FBS threshold variables
+FBS_euro_threshold <- 25000
+exchange_rate <- 0.8526
+FBS_slr_threshold <- 0.5
+
 ## Setting up a lookup table to add farmtypes.
 type_numbers <- c(1:9)
 type_words <- c("Cereals","General Cropping","Dairy","LFA Sheep","LFA Cattle","LFA Cattle and Sheep","Lowland Livestock","Mixed","All farm types")
@@ -39,13 +44,26 @@ import_sas <-function(directory_path, datayear, suffix) {
   return(dataset)
 }
 
-## Use the above function to read in and clean the various SAS datasets
+## Use the above function to read in and clean the various FBS datasets
 alb_data <- import_sas(FBS_directory_path, datayear, "_alb")
 fa_data <- import_sas(FBS_directory_path, datayear, "_fa")
 avf_data <- import_sas(FBS_directory_path, datayear, "_avf")
 dsec1_data <- import_sas(FBS_directory_path, datayear, "_dsec1")
 dsec2_data <- import_sas(FBS_directory_path, datayear, "_dsec2")
 ant_data <- import_sas(FBS_directory_path, datayear, "_ant")
+
+## Separately, get the census data (used for scaling up to national level)
+census_data_file <- paste0("june",sampyear-1,".sas7bdat")
+census_directory_path <- '//s0177a/sasdata1/ags/census/agscens'
+census_data <- tryCatch(
+  {
+    census_data <- read_sas(census_data_file)
+  },
+  error = function(e)
+  {
+    return(read_sas(paste0(census_directory_path,"/",census_data_file)))
+  }
+)
 
 ## Process labour data
 alb_data_process <- alb_data %>% 
@@ -136,9 +154,59 @@ summary_by_farmtype <- merged_data %>%
   select(type, reg_labour_number, reg_labour_hours, reg_labour_wages, cas_labour_number, cas_labour_hours, cas_labour_wages) %>% 
   group_by(type) %>% 
   summarise_all(mean) %>% 
+  #Add row for all farms
   bind_rows(mutate(summarise_all(., ~if(is.numeric(.)) mean(.)), type=9)) %>% 
   mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours, cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
-  #Add row for all farms
+
+
+## Process census data to get total number of farms meeting FBS thresholds, by farm type, in order to scale up to national figures
+
+names(census_data) <- tolower(names(census_data))
+for (x in colnames(census_data)){
+  attr(census_data[[deparse(as.name(x))]],"format.sas")=NULL
+}
+census_data_process <- census_data
+census_data_process <- census_data_process %>%
+  select(typhigh, typmed, typlow, robust_new, sumso, slr) %>% 
+  mutate(census_type=case_when(
+    typhigh %in% c(6:8)~8,
+    robust_new==1~1,
+    robust_new==2~2,
+    robust_new==6~3,
+    robust_new==7 & typlow %in% c(481,483,484)~4,
+    typmed==9946|typmed==9947~5,
+    robust_new==8~7,
+    typlow==482~6,
+    robust_new==9&typlow==484~8,
+    robust_new==3~9,
+    robust_new==4~10,
+    robust_new==5~11,
+    robust_new==10~12,
+    robust_new==11~13
+  )) %>%
+  filter(is.na(census_type)==FALSE)
+census_data_process[is.na(census_data_process)]=0
+census_fbs_threshold <- census_data_process %>% 
+  filter(sumso > FBS_euro_threshold*exchange_rate & slr > FBS_slr_threshold & census_type %in% 1:8)
+
+census_farmtype_totals <- census_fbs_threshold %>%
+  group_by(census_type) %>% 
+  summarise(census_total = n())
+census_farmtype_totals <- census_farmtype_totals %>% 
+  bind_rows(c(census_type=9,colSums(census_farmtype_totals[,2]))) %>% 
+  rename(type=census_type)
+
+## Scale up to national figures the employee numbers, hours and wages by multiplying by the number of farms of each type
+scaled_up_table <- summary_by_farmtype %>% 
+  left_join(census_farmtype_totals, by="type")
+for (i in 2:7){
+scaled_up_table[i] <- scaled_up_table[i]*scaled_up_table$census_total
+}
+scaled_up_table <- scaled_up_table %>% 
+  select(-census_total)
+
+
+
 
 ## Add "wordy" farmtypes; rearrange columns
 setkey(setDT(merged_data),type)
@@ -149,7 +217,11 @@ setkey(setDT(summary_by_farmtype),type)
 summary_by_farmtype[setDT(type_tab), farmtype := i.type_words]
 summary_by_farmtype <- summary_by_farmtype %>% 
   select(farmtype, everything(), -type)
+setkey(setDT(scaled_up_table),type)
+scaled_up_table[setDT(type_tab),farmtype:=i.type_words]
+scaled_up_table <- scaled_up_table %>% 
+  select(farmtype, everything(), -type)
 
 ## Output a csv file with the data.
-output_tables <- list("Farm list" = merged_data, "Summary by farmtype" = summary_by_farmtype)
+output_tables <- list("Farm list" = merged_data, "Summary by farmtype" = summary_by_farmtype, "National figures" = scaled_up_table)
 write_xlsx(output_tables,paste0("FBS_labour_data_", datayear, "_", sampyear-2000, ".xlsx"))
