@@ -72,6 +72,9 @@ names(weights) <- tolower(names(weights))
 for (x in colnames(weights)){
   attr(weights[[deparse(as.name(x))]],"format.sas")=NULL
 }
+## For unweighted figures, uncomment these next two lines.
+# weights <- weights %>% 
+#   mutate(fbswt=1)
 
 ## Process labour data
 alb_data_process <- alb_data %>% 
