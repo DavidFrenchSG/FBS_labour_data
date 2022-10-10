@@ -10,7 +10,7 @@ library(writexl)
 sampyear <- 2021
 datayear <- 2021
 
-## FBS threshold variables
+## FBS threshold variables. The exchange rate is from 2013 (set by standard outputs).
 FBS_euro_threshold <- 25000
 exchange_rate <- 0.8526
 FBS_slr_threshold <- 0.5
@@ -64,6 +64,14 @@ census_data <- tryCatch(
     return(read_sas(paste0(census_directory_path,"/",census_data_file)))
   }
 )
+
+## Import weights from FAS folder
+weights_file <- paste(FBS_directory_path, "/new_weights.sas7bdat", sep='')
+weights <- read_sas(weights_file)
+names(weights) <- tolower(names(weights))
+for (x in colnames(weights)){
+  attr(weights[[deparse(as.name(x))]],"format.sas")=NULL
+}
 
 ## Process labour data
 alb_data_process <- alb_data %>% 
@@ -142,20 +150,22 @@ ant_data_process <- ant_data %>%
   
 ## Join all the processed datasets together; replace any missing data with zeroes; calculate average hourly wages.
 merged_data <- list(fa_data_process, alb_data_process, dsec1_data_process, dsec2_data_process, ant_data_process, avf_data_process) %>%  
-  reduce(full_join, by="fa_id")
+  reduce(full_join, by="fa_id") %>% 
+  left_join(weights, by="fa_id")
 merged_data[is.na(merged_data)]=0 
 merged_data <- merged_data %>% 
   mutate(f_rlabour=i_lab-(i_pdlab+i_uflab+ ds1_conlab + ecclab + ds_paidl + i_clab)) %>% 
-  select(fa_id, type, reg_labour_number, reg_labour_hours, reg_labour_wages = f_rlabour, cas_labour_number, cas_labour_hours, cas_labour_wages = i_clab) %>% 
+  select(fa_id, fbswt, type, reg_labour_number, reg_labour_hours, reg_labour_wages = f_rlabour, cas_labour_number, cas_labour_hours, cas_labour_wages = i_clab) %>% 
   mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours,cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
 
 ## Create a summary by farmtype
 summary_by_farmtype <- merged_data %>% 
-  select(type, reg_labour_number, reg_labour_hours, reg_labour_wages, cas_labour_number, cas_labour_hours, cas_labour_wages) %>% 
+  select(type, fbswt, reg_labour_number, reg_labour_hours, reg_labour_wages, cas_labour_number, cas_labour_hours, cas_labour_wages) %>% 
   group_by(type) %>% 
-  summarise_all(mean) %>% 
+  summarise_at(vars(reg_labour_number:cas_labour_wages), funs(weighted.mean(., w=fbswt))) %>% 
   #Add row for all farms
-  bind_rows(mutate(summarise_all(., ~if(is.numeric(.)) mean(.)), type=9)) %>% 
+  bind_rows(mutate(summarise_at(merged_data, vars(reg_labour_number:cas_labour_wages), funs(weighted.mean(., w=fbswt))), type=9)) %>% 
+  #Hourly calculations
   mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours, cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
 
 
