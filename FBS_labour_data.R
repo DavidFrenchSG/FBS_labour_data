@@ -165,9 +165,9 @@ merged_data <- merged_data %>%
 summary_by_farmtype <- merged_data %>% 
   select(type, fbswt, reg_labour_number, reg_labour_hours, reg_labour_wages, cas_labour_number, cas_labour_hours, cas_labour_wages) %>% 
   group_by(type) %>% 
-  summarise_at(vars(reg_labour_number:cas_labour_wages), funs(weighted.mean(., w=fbswt))) %>% 
+  summarise_at(vars(reg_labour_number:cas_labour_wages), list(~weighted.mean(., w=fbswt))) %>% 
   #Add row for all farms
-  bind_rows(mutate(summarise_at(merged_data, vars(reg_labour_number:cas_labour_wages), funs(weighted.mean(., w=fbswt))), type=9)) %>% 
+  bind_rows(mutate(summarise_at(merged_data, vars(reg_labour_number:cas_labour_wages), list(~weighted.mean(., w=fbswt))), type=9)) %>% 
   #Hourly calculations
   mutate(reg_labour_hourly_wage = reg_labour_wages/reg_labour_hours, cas_labour_hourly_wage = cas_labour_wages/cas_labour_hours)
 
